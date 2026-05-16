@@ -19,9 +19,15 @@
 export interface HandoffSystemPromptInput {
   chatId: string;
   peers: string[];
+  /**
+   * Optional path to the canonical protocol spec on the runtime host. Bots
+   * read it once per session for the full normative rules. Omit (or set to
+   * undefined) on hosts that don't ship the spec — the inlined hard rules
+   * below are self-contained enough to operate without it. Wire from
+   * `process.env.METABOT_HANDOFF_SPEC_PATH` or `BotConfig`.
+   */
+  protocolSpecPath?: string;
 }
-
-const PROTOCOL_SPEC_PATH = '/Users/taobinxian/claude-agent/deepaix/docs/AGENT_HANDOFF_PROTOCOL.md';
 
 export function buildHandoffSystemPromptSection(
   input: HandoffSystemPromptInput,
@@ -29,14 +35,18 @@ export function buildHandoffSystemPromptSection(
   if (!input.chatId || input.peers.length === 0) return null;
   const boardPath = `~/.metabot/handoff/${input.chatId}.md`;
   const peerList = input.peers.join(', ');
-  return [
+  const lines: string[] = [
     '## HANDOFF Protocol (multi-agent file-backed collaboration)',
     '',
     `You share this group with peer bots: ${peerList}.`,
     'For tasks that need persistence, audit, multi-round delegation, or blocking on a peer\'s answer, use the file-based handoff protocol instead of plain `mb talk`.',
     '',
     `**Board for this chat**: \`${boardPath}\` — the single source of truth for task body, Acceptance, Evidence, and turn ownership.`,
-    `**Protocol spec**: \`${PROTOCOL_SPEC_PATH}\` (read once before your first handoff in a new session).`,
+  ];
+  if (input.protocolSpecPath) {
+    lines.push(`**Protocol spec**: \`${input.protocolSpecPath}\` (read once before your first handoff in a new session).`);
+  }
+  lines.push(
     '',
     '### Hard rules (do not violate)',
     '1. The board is the single source of truth. Do NOT carry task body inside feishu messages or `mb talk` payloads — `mb talk` only delivers a pointer like `msg-NNN appended, please process`.',
@@ -47,5 +57,6 @@ export function buildHandoffSystemPromptSection(
     '### When to use vs skip',
     '- Use it when: the task takes >30s, needs a peer review, needs an audit trail, or has multiple back-and-forth rounds.',
     '- Skip it when: the question is one-shot and answerable in <30s — a single synchronous `mb talk` is fine for that.',
-  ].join('\n');
+  );
+  return lines.join('\n');
 }

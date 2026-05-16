@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -136,6 +136,66 @@ describe('appendMessage', () => {
       { expectedTurn: 'claude-code', nextTurn: 'codex', now: fixedNow },
     );
     expect(result).toEqual({ ok: false, reason: 'no_board' });
+  });
+
+  it('recovers from a corrupted last_msg_id by scanning messages for max numeric id', async () => {
+    const path = join(tmpDir, 'corrupted.md');
+    await initBoard(path, 'claude-code', { now: fixedNow });
+    await appendMessage(
+      path,
+      { from: 'claude-code', to: 'codex', type: 'request', thread: 't', status: 'pending', body: 'first' },
+      { expectedTurn: 'claude-code', nextTurn: 'codex', now: fixedNow },
+    );
+    // Simulate corruption: hand-edit last_msg_id to a non-numeric value
+    const text = readFileSync(path, 'utf8').replace(/last_msg_id: msg-001/, 'last_msg_id: msg-bad');
+    writeFileSync(path, text);
+
+    // STATUS.turn is still 'codex' (set by previous append), so codex appends next
+    const result = await appendMessage(
+      path,
+      { from: 'codex', to: 'claude-code', type: 'response', thread: 't', status: 'completed', body: 'second' },
+      { expectedTurn: 'codex', nextTurn: 'claude-code', now: fixedNow },
+    );
+    expect(result).toEqual({ ok: true, id: 'msg-002' });
+  });
+
+  it('starts from msg-001 when last_msg_id is corrupted and no messages exist', async () => {
+    const path = join(tmpDir, 'corrupted-empty.md');
+    await initBoard(path, 'claude-code', { now: fixedNow });
+    // Corrupt the STATUS without any messages present
+    const text = readFileSync(path, 'utf8').replace(/last_msg_id: null/, 'last_msg_id: msg-garbage');
+    writeFileSync(path, text);
+
+    const result = await appendMessage(
+      path,
+      { from: 'claude-code', to: 'codex', type: 'request', thread: 't', status: 'pending', body: 'first ever' },
+      { expectedTurn: 'claude-code', nextTurn: 'codex', now: fixedNow },
+    );
+    expect(result).toEqual({ ok: true, id: 'msg-001' });
+  });
+
+  it('keeps the body intact when it quotes a `### msg-NNN` line that is not a real message header', async () => {
+    const path = join(tmpDir, 'quote.md');
+    await initBoard(path, 'claude-code', { now: fixedNow });
+    const quotedBody = [
+      'Earlier in msg-001 we agreed to X.',
+      '### msg-001 said: do not regress',
+      'And here is the follow-up.',
+    ].join('\n');
+    await appendMessage(
+      path,
+      { from: 'claude-code', to: 'codex', type: 'request', thread: 't', status: 'pending', body: quotedBody },
+      { expectedTurn: 'claude-code', nextTurn: 'codex', now: fixedNow },
+    );
+    await appendMessage(
+      path,
+      { from: 'codex', to: 'claude-code', type: 'response', thread: 't', status: 'completed', body: 'done' },
+      { expectedTurn: 'codex', nextTurn: 'claude-code', now: fixedNow },
+    );
+    const board = await readBoard(path);
+    expect(board!.messages).toHaveLength(2);
+    expect(board!.messages[0].body).toContain('### msg-001 said: do not regress');
+    expect(board!.messages[0].body).toContain('And here is the follow-up.');
   });
 
   it('preserves YAML metadata round-trip including refs and artifacts', async () => {

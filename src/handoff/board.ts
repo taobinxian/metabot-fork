@@ -148,8 +148,12 @@ function buildMessageBlock(msg: HandoffMessage): string {
   ].join('\n');
 }
 
+// Body terminator requires the *next* message header to be followed by the
+// yaml fence — otherwise an LLM body that quotes "### msg-NNN said: ..." would
+// be silently truncated. See the corresponding regression test in
+// tests/handoff-board.test.ts ("keeps the body intact when it quotes ...").
 const MESSAGE_REGEX =
-  /### (msg-\d{3,})\s*\n```yaml\s*\n([\s\S]*?)\n```\s*\n\s*\*\*Body\*\*\s*\n([\s\S]*?)(?=\n### msg-\d{3,}|\s*$)/g;
+  /### (msg-\d{3,})\s*\n```yaml\s*\n([\s\S]*?)\n```\s*\n\s*\*\*Body\*\*\s*\n([\s\S]*?)(?=\n### msg-\d{3,}\s*\n```yaml|\s*$)/g;
 
 function parseBoard(text: string): Board {
   const statusMatch = text.match(/## STATUS\s*\n```yaml\s*\n([\s\S]*?)\n```/);
@@ -219,6 +223,24 @@ export async function initBoard(
   await writeFile(path, body, { encoding: 'utf8', flag: 'wx' });
 }
 
+function parseMsgIdNumber(id: string): number | null {
+  const stripped = id.replace(/^msg-/, '');
+  if (!/^\d+$/.test(stripped)) return null;
+  const n = Number.parseInt(stripped, 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+function computeNextMsgNumber(board: Board): number {
+  const fromStatus = board.status.lastMsgId ? parseMsgIdNumber(board.status.lastMsgId) : 0;
+  if (fromStatus !== null && fromStatus >= 0) return fromStatus + 1;
+  let max = 0;
+  for (const msg of board.messages) {
+    const n = parseMsgIdNumber(msg.id);
+    if (n !== null && n > max) max = n;
+  }
+  return max + 1;
+}
+
 const pathLocks = new Map<string, Promise<unknown>>();
 
 async function withPathLock<T>(path: string, fn: () => Promise<T>): Promise<T> {
@@ -252,10 +274,8 @@ export async function appendMessage(
       return { ok: false, reason: 'wrong_turn', currentTurn: board.status.turn };
     }
     const now = (opts.now ?? (() => new Date()))().toISOString();
-    const lastNum = board.status.lastMsgId
-      ? parseInt(board.status.lastMsgId.replace('msg-', ''), 10)
-      : 0;
-    const nextId = `msg-${String(lastNum + 1).padStart(3, '0')}`;
+    const nextNum = computeNextMsgNumber(board);
+    const nextId = `msg-${String(nextNum).padStart(3, '0')}`;
     const newMessage: HandoffMessage = {
       id: nextId,
       from: msg.from,

@@ -50,10 +50,10 @@ async function startFeishuBot(botConfig: BotConfig, logger: Logger, memoryServer
     if (botOpenId) {
       botLogger.info({ botOpenId }, 'Bot info fetched');
     } else {
-      botLogger.warn('Could not get bot open_id. Ensure the Feishu app has Bot capability enabled and the app version is published.');
+      botLogger.error('Could not get bot open_id. Self-filter will refuse group messages until this is fixed. Ensure the Feishu app has Bot capability enabled and the app version is published.');
     }
   } catch (err: any) {
-    botLogger.warn({ err: err?.message || err }, 'Failed to fetch bot info. Check: 1) Bot capability is enabled in Feishu app 2) App is published 3) App credentials are correct');
+    botLogger.error({ err: err?.message || err }, 'Failed to fetch bot info. Self-filter will refuse group messages until this is fixed. Check: 1) Bot capability is enabled in Feishu app 2) App is published 3) App credentials are correct');
   }
 
   // Create sender and bridge (FeishuSenderAdapter wraps the Feishu-specific MessageSender)

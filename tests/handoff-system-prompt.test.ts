@@ -28,12 +28,30 @@ describe('buildHandoffSystemPromptSection', () => {
     expect(section).toContain('openclaw');
   });
 
-  it('references the source-of-truth protocol spec path', () => {
+  it('does not embed a hardcoded developer-machine absolute path', () => {
     const section = buildHandoffSystemPromptSection({
       chatId: 'oc_abc',
       peers: ['codex'],
     })!;
-    expect(section).toContain('AGENT_HANDOFF_PROTOCOL.md');
+    expect(section).not.toContain('/Users/');
+    expect(section).not.toMatch(/\/home\//);
+  });
+
+  it('embeds protocolSpecPath when caller provides one (config-driven)', () => {
+    const section = buildHandoffSystemPromptSection({
+      chatId: 'oc_abc',
+      peers: ['codex'],
+      protocolSpecPath: '~/.metabot/AGENT_HANDOFF_PROTOCOL.md',
+    })!;
+    expect(section).toContain('~/.metabot/AGENT_HANDOFF_PROTOCOL.md');
+  });
+
+  it('omits the spec-path line entirely when no protocolSpecPath is provided', () => {
+    const section = buildHandoffSystemPromptSection({
+      chatId: 'oc_abc',
+      peers: ['codex'],
+    })!;
+    expect(section.toLowerCase()).not.toContain('protocol spec');
   });
 
   it('explicitly forbids carrying task body inside feishu messages (rule 12.6.1)', () => {

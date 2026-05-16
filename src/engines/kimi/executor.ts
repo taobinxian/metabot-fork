@@ -9,6 +9,7 @@ import type {
   ExecutorOptions,
   SDKMessage,
 } from '../claude/executor.js';
+import { buildHandoffSystemPromptSection } from '../../handoff/system-prompt.js';
 
 /**
  * Executor that drives `@moonshot-ai/kimi-agent-sdk` and translates its
@@ -272,6 +273,12 @@ export class KimiExecutor {
             `## Group Chat\nYou are in a group chat (group: ${groupId}) with these bots: ${others.join(', ')}.\nTo talk to another bot, use: \`mb talk <botName> grouptalk-${groupId}-<botName> "message"\``,
           );
         }
+        const handoffSection = buildHandoffSystemPromptSection({
+          chatId: apiContext.chatId,
+          peers: others,
+          protocolSpecPath: process.env.METABOT_HANDOFF_SPEC_PATH,
+        });
+        if (handoffSection) sections.push(handoffSection);
       }
     }
 

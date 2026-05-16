@@ -226,6 +226,7 @@ export class CodexExecutor {
         const handoffSection = buildHandoffSystemPromptSection({
           chatId: apiContext.chatId,
           peers: others,
+          protocolSpecPath: process.env.METABOT_HANDOFF_SPEC_PATH,
         });
         if (handoffSection) sections.push(handoffSection);
       }
