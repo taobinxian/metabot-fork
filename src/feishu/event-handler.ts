@@ -58,6 +58,23 @@ function clearCachedMedia(chatId: string, userId: string): void {
   pendingMediaCache.delete(cacheMediaKey(chatId, userId));
 }
 
+/**
+ * Detect echoes of this bot's own outbound messages.
+ *
+ * Feishu webhooks deliver every group message — including ones the bot itself
+ * just sent — back into `im.message.receive_v1`. Without this check, a bot
+ * replying in a group it shares with peer bots would re-trigger itself (or
+ * other bots) on its own output. Requires a configured `botOpenId`; without
+ * one we cannot positively identify "self" and must let the message through.
+ */
+export function isOwnMessage(event: unknown, botOpenId: string | undefined): boolean {
+  if (!botOpenId) return false;
+  const senderOpenId = (event as { sender?: { sender_id?: { open_id?: string } } })
+    ?.sender?.sender_id?.open_id;
+  if (!senderOpenId) return false;
+  return senderOpenId === botOpenId;
+}
+
 async function isPrivateLikeGroup(chatId: string, sender: MessageSender): Promise<boolean> {
   const cached = memberCountCache.get(chatId);
   if (cached && Date.now() - cached.ts < MEMBER_COUNT_CACHE_TTL_MS) {
@@ -135,6 +152,11 @@ export function createEventDispatcher(
         const userId = sender?.sender_id?.open_id;
         if (!userId) {
           logger.warn('Message missing sender open_id');
+          return;
+        }
+
+        if (isOwnMessage(event, botOpenId)) {
+          logger.debug({ chatId: message.chat_id }, 'Ignoring own outbound message echo');
           return;
         }
 

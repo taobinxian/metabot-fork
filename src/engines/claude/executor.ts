@@ -8,6 +8,7 @@ import type { SDKUserMessage, SpawnOptions, SpawnedProcess } from '@anthropic-ai
 import type { BotConfigBase } from '../../config.js';
 import type { Logger } from '../../utils/logger.js';
 import { AsyncQueue } from '../../utils/async-queue.js';
+import { buildHandoffSystemPromptSection } from '../../handoff/system-prompt.js';
 
 const isWindows = process.platform === 'win32';
 
@@ -226,6 +227,11 @@ export class ClaudeExecutor {
             `## Group Chat\nYou are in a group chat with these bots: ${others.join(', ')}.\nUse \`mb talk <botName> <chatId> "message"\` to communicate with other bots in the group.`
           );
         }
+        const handoffSection = buildHandoffSystemPromptSection({
+          chatId: apiContext.chatId,
+          peers: others,
+        });
+        if (handoffSection) appendSections.push(handoffSection);
       }
     }
 
