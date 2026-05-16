@@ -2,6 +2,7 @@ import { execSync, spawn, type ChildProcess } from 'node:child_process';
 import type { BotConfigBase, CodexBotConfig } from '../../config.js';
 import type { Logger } from '../../utils/logger.js';
 import { AsyncQueue } from '../../utils/async-queue.js';
+import { buildHandoffSystemPromptSection } from '../../handoff/system-prompt.js';
 import type {
   ApiContext,
   ExecutionHandle,
@@ -222,6 +223,12 @@ export class CodexExecutor {
             `## Group Chat\nYou are in a group chat (group: ${apiContext.groupId}) with these bots: ${others.join(', ')}.\nTo talk to another bot, use: \`mb talk <botName> grouptalk-${apiContext.groupId}-<botName> "message"\``,
           );
         }
+        const handoffSection = buildHandoffSystemPromptSection({
+          chatId: apiContext.chatId,
+          peers: others,
+          protocolSpecPath: process.env.METABOT_HANDOFF_SPEC_PATH,
+        });
+        if (handoffSection) sections.push(handoffSection);
       }
     }
 

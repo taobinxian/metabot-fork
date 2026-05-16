@@ -58,6 +58,42 @@ function clearCachedMedia(chatId: string, userId: string): void {
   pendingMediaCache.delete(cacheMediaKey(chatId, userId));
 }
 
+/**
+ * Detect echoes of this bot's own outbound messages.
+ *
+ * Feishu webhooks deliver every group message — including ones the bot itself
+ * just sent — back into `im.message.receive_v1`. Without this check, a bot
+ * replying in a group it shares with peer bots would re-trigger itself (or
+ * other bots) on its own output. Requires a configured `botOpenId`; without
+ * one we cannot positively identify "self" and must let the message through.
+ */
+export function isOwnMessage(event: unknown, botOpenId: string | undefined): boolean {
+  if (!botOpenId) return false;
+  const senderOpenId = (event as { sender?: { sender_id?: { open_id?: string } } })
+    ?.sender?.sender_id?.open_id;
+  if (!senderOpenId) return false;
+  return senderOpenId === botOpenId;
+}
+
+/**
+ * Refuse to process a group message when this bot's own open_id is unknown.
+ *
+ * If `getBotInfo` failed at startup (network blip, permissions miss),
+ * `botOpenId` stays undefined for the whole process. In that state
+ * `isOwnMessage` can never identify a self-echo, and the group fallback in
+ * the @mention check (any mention = "I'm being talked to") would let the
+ * bot react to its own outbound message — kicking off an unbounded echo
+ * loop with peer bots. Private chats are safe: webhook can't echo a DM the
+ * bot itself sent. Returning true here at the top of the handler is the
+ * surgical fix; the operator must repair the identity-fetch step.
+ */
+export function shouldDropGroupForUnknownIdentity(
+  chatType: string | undefined,
+  botOpenId: string | undefined,
+): boolean {
+  return chatType === 'group' && !botOpenId;
+}
+
 async function isPrivateLikeGroup(chatId: string, sender: MessageSender): Promise<boolean> {
   const cached = memberCountCache.get(chatId);
   if (cached && Date.now() - cached.ts < MEMBER_COUNT_CACHE_TTL_MS) {
@@ -135,6 +171,19 @@ export function createEventDispatcher(
         const userId = sender?.sender_id?.open_id;
         if (!userId) {
           logger.warn('Message missing sender open_id');
+          return;
+        }
+
+        if (isOwnMessage(event, botOpenId)) {
+          logger.debug({ chatId: message.chat_id }, 'Ignoring own outbound message echo');
+          return;
+        }
+
+        if (shouldDropGroupForUnknownIdentity(message.chat_type, botOpenId)) {
+          logger.error(
+            { chatId: message.chat_id },
+            'Refusing group message: bot open_id unresolved at startup. Self-filter would be disabled; restart the bot after fixing Feishu identity fetch.',
+          );
           return;
         }
 
