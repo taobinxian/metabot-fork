@@ -17,6 +17,7 @@ import { OutputHandler } from './output-handler.js';
 import { CostTracker } from '../utils/cost-tracker.js';
 import { metrics } from '../utils/metrics.js';
 import type { SessionRegistry } from '../session/session-registry.js';
+import { selectGroupContext } from '../handoff/group-context.js';
 
 const TASK_TIMEOUT_MS = 24 * 60 * 60 * 1000; // 24 hours
 const QUESTION_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes for user to answer
@@ -671,7 +672,11 @@ export class MessageBridge {
       return;
     }
 
-    const apiContext = { botName: this.config.name, chatId };
+    const apiContext = {
+      botName: this.config.name,
+      chatId,
+      ...selectGroupContext(chatId, this.config.groupMemberships),
+    };
 
     // Start multi-turn execution
     const executionHandle = this.executorForChat(chatId).startExecution({
@@ -1065,7 +1070,14 @@ export class MessageBridge {
     const effectiveMessageId = messageId || `api-${chatId}-${Date.now()}`;
     options.onUpdate?.(initialState, effectiveMessageId, false);
 
-    const apiContext = { botName: this.config.name, chatId, groupMembers: options.groupMembers, groupId: options.groupId };
+    const apiContext = {
+      botName: this.config.name,
+      chatId,
+      ...selectGroupContext(chatId, this.config.groupMemberships, {
+        groupMembers: options.groupMembers,
+        groupId: options.groupId,
+      }),
+    };
 
     const executionHandle = this.executorForChat(chatId).startExecution({
       prompt,

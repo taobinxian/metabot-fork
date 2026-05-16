@@ -6,6 +6,18 @@ import * as path from 'node:path';
 /** Agent engine backing a bot. */
 export type EngineName = 'claude' | 'kimi' | 'codex';
 
+/** A group of bots collaborating in one IM chat (e.g. a Feishu group). */
+export interface GroupDefinition {
+  id: string;
+  members: string[];
+}
+
+/** Per-bot view of the groups it participates in (built from top-level groups). */
+export interface GroupMembership {
+  groupId: string;
+  members: string[];
+}
+
 /** Shared config fields used by MessageBridge and Executors (platform-agnostic). */
 export interface BotConfigBase {
   name: string;
@@ -17,6 +29,12 @@ export interface BotConfigBase {
   ttsVoice?: string;
   /** Agent engine. Defaults to 'claude' for backward compatibility. */
   engine?: EngineName;
+  /**
+   * Groups this bot participates in. Populated by `distributeGroupMemberships`
+   * from the top-level `groups` block in bots.json. Drives the Group Chat +
+   * HANDOFF system-prompt sections at runtime.
+   */
+  groupMemberships?: GroupMembership[];
   claude: {
     defaultWorkingDirectory: string;
     maxTurns: number | undefined;
@@ -435,6 +453,35 @@ export interface BotsJsonNewFormat {
   webBots?: WebBotJsonEntry[];
   wechatBots?: WechatBotJsonEntry[];
   peers?: PeerJsonEntry[];
+  /**
+   * Optional list of collaboration groups. Each group binds one IM chat id
+   * (e.g. a Feishu group `oc_xxx`) to a set of bot names that participate in
+   * it. At load time `distributeGroupMemberships` projects this list onto
+   * each bot's `groupMemberships`, which downstream `executeQuery` reads to
+   * activate the Group Chat + HANDOFF system-prompt sections.
+   */
+  groups?: GroupDefinition[];
+}
+
+/**
+ * Build a per-bot `groupMemberships` view from a flat top-level groups list.
+ * Each bot only gets the groups whose `members` array includes its `name`.
+ * Returns new objects — inputs are not mutated.
+ */
+export function distributeGroupMemberships<B extends { name: string }>(
+  bots: readonly B[],
+  groups: readonly GroupDefinition[] | undefined,
+): (B & { groupMemberships?: GroupMembership[] })[] {
+  if (!groups || groups.length === 0) {
+    return bots.map((bot) => ({ ...bot }));
+  }
+  return bots.map((bot) => {
+    const memberships = groups
+      .filter((g) => g.members.includes(bot.name))
+      .map((g) => ({ groupId: g.id, members: [...g.members] }));
+    if (memberships.length === 0) return { ...bot };
+    return { ...bot, groupMemberships: memberships };
+  });
 }
 
 export function loadAppConfig(): AppConfig {
@@ -526,6 +573,19 @@ export function loadAppConfig(): AppConfig {
   const memorySecret = process.env.MEMORY_SECRET || process.env.API_SECRET || '';
   const memoryAdminToken = process.env.MEMORY_ADMIN_TOKEN || undefined;
   const memoryReaderToken = process.env.MEMORY_TOKEN || undefined;
+
+  // Distribute top-level `groups` onto each bot's `groupMemberships` so the
+  // runtime (executeQuery → executor) can activate Group Chat + HANDOFF
+  // sections in the system prompt for the right Feishu chat.
+  if (botsConfigPath && parsedConfig && !Array.isArray(parsedConfig)) {
+    const groups = (parsedConfig as BotsJsonNewFormat).groups;
+    if (groups && groups.length > 0) {
+      feishuBots = distributeGroupMemberships(feishuBots, groups);
+      telegramBots = distributeGroupMemberships(telegramBots, groups);
+      webBots = distributeGroupMemberships(webBots, groups);
+      wechatBots = distributeGroupMemberships(wechatBots, groups);
+    }
+  }
 
   // Parse peers from JSON config and/or env vars
   const peers: PeerConfig[] = [];
