@@ -47,6 +47,24 @@ print(json.dumps({'botName': sys.argv[1], 'chatId': sys.argv[2], 'prompt': sys.a
       -H "$METABOT_AUTH" -H "Content-Type: application/json" \
       -d @-
     ;;
+  # --- Direct message (in-chat utterance, no agent session) ---
+  say)
+    bot="$1" chat="$2"; shift 2 2>/dev/null || true
+    text="$*"
+    if [[ -z "${bot:-}" || -z "${chat:-}" || -z "${text:-}" ]]; then
+      echo "Usage: mb say <botName> <chatId> <text>"
+      echo "  Sends <text> in <chatId> as <botName>, without triggering an agent session."
+      echo "  Use when an agent wants its own utterance visible in the chat (e.g. before mb talk)."
+      exit 1
+    fi
+    python3 -c "
+import json, sys
+print(json.dumps({'botName': sys.argv[1], 'chatId': sys.argv[2], 'text': sys.argv[3]}))
+" "$bot" "$chat" "$text" | \
+    curl -s -X POST "$METABOT_URL/api/messages" \
+      -H "$METABOT_AUTH" -H "Content-Type: application/json" \
+      -d @- | _json
+    ;;
   # --- Task delegation (deprecated alias for talk) ---
   task)
     bot="$1" chat="$2"; shift 2 2>/dev/null || true
@@ -519,6 +537,7 @@ print(json.dumps(body))
     echo "  Agent Talk:"
     echo "    mb talk <bot> <chatId> <prompt>  - Talk to a bot (auto-routes to peers)"
     echo "    mb talk peer/bot <chatId> <prompt> - Talk to a specific peer's bot"
+    echo "    mb say <bot> <chatId> <text>     - Send text in chat as bot (no agent session)"
     echo ""
     echo "  Peers:"
     echo "    mb peers                         - List peers and their status"

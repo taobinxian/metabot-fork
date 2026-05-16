@@ -231,6 +231,35 @@ export async function handleTaskRoutes(
     return true;
   }
 
+  // POST /api/messages — direct sendText without triggering an agent session,
+  // so cross-agent dialogue (the caller's own utterance) is visible in the chat
+  if (method === 'POST' && url === '/api/messages') {
+    const body = await parseJsonBody(req);
+    const botName = body.botName as string;
+    const chatId = body.chatId as string;
+    const text = body.text as string;
+
+    if (!botName || !chatId || !text) {
+      jsonResponse(res, 400, { error: 'Missing required fields: botName, chatId, text' });
+      return true;
+    }
+
+    const bot = registry.get(botName);
+    if (!bot) {
+      jsonResponse(res, 404, { error: `Bot not found: ${botName}` });
+      return true;
+    }
+
+    try {
+      await bot.sender.sendText(chatId, text);
+      jsonResponse(res, 200, { success: true });
+    } catch (err: any) {
+      logger.error({ err, botName, chatId }, 'Failed to send message');
+      jsonResponse(res, 500, { error: err.message });
+    }
+    return true;
+  }
+
   // POST /api/schedule
   if (method === 'POST' && url === '/api/schedule') {
     const body = await parseJsonBody(req);

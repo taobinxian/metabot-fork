@@ -2,7 +2,6 @@ import { execSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { SDKUserMessage, SpawnOptions, SpawnedProcess } from '@anthropic-ai/claude-agent-sdk';
 import type { BotConfigBase } from '../../config.js';
@@ -53,7 +52,11 @@ function hasCredentialsFile(): boolean {
 
 /**
  * Create a custom spawn function for cross-platform compatibility.
- * - Uses process.execPath (current Node binary) to avoid PATH issues on Windows.
+ * - Spawns options.command directly so the SDK's native-binary mode works
+ *   (when pathToClaudeCodeExecutable points to the native Mach-O/PE binary,
+ *   options.command is the binary path and options.args contains only SDK
+ *   flags — running them through Node would crash with exit code 9 because
+ *   Node rejects flags like --output-format).
  * - Always filters CLAUDE* env vars to prevent nested session errors.
  * - Filters ANTHROPIC auth env vars only when an explicit API key is provided
  *   or credentials.json exists (so env-var-only users can still authenticate).
@@ -65,8 +68,6 @@ function createSpawnFn(explicitApiKey?: string): (options: SpawnOptions) => Spaw
   const filterAuthVars = !!(explicitApiKey || hasCredentialsFile());
 
   return (options: SpawnOptions): SpawnedProcess => {
-    const nodePath = process.execPath;
-
     // Merge provided env with process.env for a complete environment
     const baseEnv = options.env && Object.keys(options.env).length > 0
       ? { ...process.env, ...options.env }
@@ -86,7 +87,9 @@ function createSpawnFn(explicitApiKey?: string): (options: SpawnOptions) => Spaw
       env.ANTHROPIC_API_KEY = explicitApiKey;
     }
 
-    const child = spawn(nodePath, options.args, {
+    env.METABOT_BRIDGE = '1';
+
+    const child = spawn(options.command, options.args, {
       cwd: options.cwd,
       env,
       signal: options.signal,
@@ -191,16 +194,20 @@ export class ClaudeExecutor {
       includePartialMessages: true,
       // Load MCP servers and settings from user/project config files
       settingSources: ['user', 'project'],
-      // Cross-platform spawn: custom spawn filters CLAUDE* env vars and uses
-      // process.execPath to avoid PATH issues on Windows; fileURLToPath converts
-      // file:// URLs to native paths for the SDK CLI entrypoint.
+      // Custom spawn filters CLAUDE* / ANTHROPIC_* env vars and spawns the
+      // resolved Claude binary directly (works for both native binary and
+      // JS-based cli.js modes — see createSpawnFn for details).
       spawnClaudeCodeProcess: createSpawnFn(this.config.claude.apiKey),
-      executableArgs: [path.join(path.dirname(fileURLToPath(import.meta.resolve('@anthropic-ai/claude-agent-sdk'))), 'cli.js')],
+      // Use local claude binary directly (not SDK's bundled cli.js which may be outdated)
       pathToClaudeCodeExecutable: CLAUDE_EXECUTABLE,
     };
 
     // Build system prompt appendix from sections
     const appendSections: string[] = [];
+
+    appendSections.push(
+      `## Critical: Self-Kill Prevention\nYou are running INSIDE a pm2 process named "metabot". The metabot process IS your bridge to Feishu/Web — killing it terminates your own session and leaves the user stuck on a "Running…" card forever.\n\nFORBIDDEN commands (will self-terminate; do NOT run them):\n- \`pm2 restart metabot\`\n- \`pm2 stop metabot\`\n- \`pm2 delete metabot\`\n- \`pm2 reload metabot\`\n- \`pm2 kill\` (kills the daemon)\n- \`kill\`/\`pkill\` targeting the metabot or tsx process\n\nIf a restart is genuinely required (e.g., user explicitly asks to apply code changes), use a DETACHED subprocess that outlives this session:\n\n\`\`\`bash\nnohup bash -c 'sleep 2 && pm2 restart metabot' >/dev/null 2>&1 &\ndisown\n\`\`\`\n\nThis returns immediately so your tool call completes before metabot dies, and pm2 will restart it 2s later. After issuing this, tell the user "metabot 将在 2 秒后重启，请稍后重新发送消息" and stop — do not run further tools.`
+    );
 
     if (outputsDir) {
       appendSections.push(`## Output Files\nWhen producing output files for the user (images, PDFs, documents, archives, code files, etc.), copy them to: ${outputsDir}\nUse \`cp\` via the Bash tool. The bridge will automatically send files placed there to the user.`);
