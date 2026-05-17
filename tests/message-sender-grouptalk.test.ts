@@ -82,10 +82,19 @@ describe('MessageSender grouptalk envelope unwrapping', () => {
     expect(chatGet).toHaveBeenCalledWith({ path: { chat_id: 'oc_abc' } });
   });
 
-  it('handles groupIds containing dashes (greedy capture before final bot segment)', async () => {
+  it('handles hyphenated bot names like `claude-code` without mis-capturing the groupId', async () => {
     const { client, create } = makeClient();
     const sender = new MessageSender(client, silentLogger());
-    await sender.sendCard('grouptalk-oc_a-b-c-codex', '{}');
-    expect(create.mock.calls[0][0].data.receive_id).toBe('oc_a-b-c');
+    await sender.sendCard('grouptalk-oc_abc-claude-code', '{}');
+    expect(create.mock.calls[0][0].data.receive_id).toBe('oc_abc');
+  });
+
+  it('passes a non-Feishu `group-` prefixed Web-UI chatId through untouched', async () => {
+    // ws-server's Web-UI per-bot chatId uses the `group-<id>-<bot>` shape
+    // (different prefix from `grouptalk-`) — the sender must not try to unwrap it.
+    const { client, create } = makeClient();
+    const sender = new MessageSender(client, silentLogger());
+    await sender.sendCard('group-webgroup1-codex', '{}');
+    expect(create.mock.calls[0][0].data.receive_id).toBe('group-webgroup1-codex');
   });
 });

@@ -24,16 +24,22 @@ export function resolveGroupContext(
 
 /**
  * Strip the `grouptalk-<groupId>-<botName>` envelope used by inter-bot relays
- * so the embedded `<groupId>` can be matched against configured memberships.
- * Returns the chatId unchanged when it doesn't match the pattern.
+ * so the embedded `<groupId>` can be matched against configured memberships
+ * or used as a Feishu API `receive_id`. Returns the chatId unchanged when it
+ * doesn't match the pattern.
  *
- * The pattern is greedy on the middle segment so groupIds containing dashes
- * (uncommon, but possible if a user names a Web-UI group with dashes) round-trip
- * correctly — the trailing `-<botName>` is always the last hyphen-delimited
- * segment.
+ * The envelope is only ever produced for Feishu-backed groups, where the
+ * inner `<groupId>` is a real Feishu chat id of the form `oc_<32-hex>` (no
+ * hyphens). Anchoring the capture to `oc_[^-]+` lets bot names that contain
+ * dashes (e.g. `claude-code`) round-trip correctly: a naive greedy `(.+)-`
+ * pattern would mis-capture `oc_abc-claude` from `grouptalk-oc_abc-claude-code`
+ * and then re-fail the Feishu call with `invalid receive_id`.
+ *
+ * The Web-UI group chat path uses a different prefix (`group-<id>-<bot>`, see
+ * ws-server.ts), so it is intentionally unaffected.
  */
 export function chatIdToGroupId(chatId: string): string {
-  const m = chatId.match(/^grouptalk-(.+)-[^-]+$/);
+  const m = chatId.match(/^grouptalk-(oc_[^-]+)-/);
   return m ? m[1] : chatId;
 }
 
