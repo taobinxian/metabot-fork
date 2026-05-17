@@ -3,6 +3,15 @@ import type * as lark from '@larksuiteoapi/node-sdk';
 import type { Logger } from '../utils/logger.js';
 import { chatIdToGroupId } from '../handoff/group-context.js';
 
+/**
+ * CONVENTION: every public method that accepts a chatId and forwards it to a
+ * Feishu `chat_id`/`receive_id` SDK field MUST normalize it through
+ * `chatIdToGroupId()` first. Internal bookkeeping (runningTasks keys,
+ * outputsDir, sessionId, logger context) keeps the original synthetic chatId;
+ * only the outbound Feishu id is normalized. Skipping this on a new method
+ * silently regresses cross-bot `mb talk` in same-group Feishu chats — see
+ * PR #2 `fix/grouptalk-receive-id`.
+ */
 export class MessageSender {
   constructor(
     private client: lark.Client,

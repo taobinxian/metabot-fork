@@ -61,6 +61,10 @@ describe('chatIdToGroupId', () => {
     expect(chatIdToGroupId('grouptalk-webgroup1-codex')).toBe('grouptalk-webgroup1-codex');
   });
 
+  it('does not normalize when the bot-name suffix is empty (`grouptalk-oc_abc-`)', () => {
+    expect(chatIdToGroupId('grouptalk-oc_abc-')).toBe('grouptalk-oc_abc-');
+  });
+
   it('returns empty string unchanged', () => {
     expect(chatIdToGroupId('')).toBe('');
   });

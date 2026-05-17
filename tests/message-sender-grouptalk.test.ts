@@ -39,12 +39,15 @@ function makeClient() {
 }
 
 describe('MessageSender grouptalk envelope unwrapping', () => {
-  it('strips grouptalk envelope from chatId before calling sendCard', async () => {
+  it('strips grouptalk envelope from chatId before calling sendCard and returns SDK messageId', async () => {
     const { client, create } = makeClient();
     const sender = new MessageSender(client, silentLogger());
-    await sender.sendCard('grouptalk-oc_abc-codex', '{}');
+    const messageId = await sender.sendCard('grouptalk-oc_abc-codex', '{}');
     expect(create).toHaveBeenCalledTimes(1);
     expect(create.mock.calls[0][0].data.receive_id).toBe('oc_abc');
+    // Caller (MessageBridge) needs the real messageId for later updateCard
+    // calls — unwrapping must not regress the return-value contract.
+    expect(messageId).toBe('msg-1');
   });
 
   it('passes a real chatId through unchanged when not a grouptalk envelope', async () => {
