@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import type * as lark from '@larksuiteoapi/node-sdk';
 import type { Logger } from '../utils/logger.js';
+import { chatIdToGroupId } from '../handoff/group-context.js';
 
 export class MessageSender {
   constructor(
@@ -9,11 +10,12 @@ export class MessageSender {
   ) {}
 
   async sendCard(chatId: string, cardContent: string): Promise<string | undefined> {
+    const receiveId = chatIdToGroupId(chatId);
     try {
       const resp = await this.client.im.v1.message.create({
         params: { receive_id_type: 'chat_id' },
         data: {
-          receive_id: chatId,
+          receive_id: receiveId,
           content: cardContent,
           msg_type: 'interactive',
         },
@@ -103,11 +105,12 @@ export class MessageSender {
   }
 
   async sendImage(chatId: string, imageKey: string): Promise<boolean> {
+    const receiveId = chatIdToGroupId(chatId);
     try {
       await this.client.im.v1.message.create({
         params: { receive_id_type: 'chat_id' },
         data: {
-          receive_id: chatId,
+          receive_id: receiveId,
           content: JSON.stringify({ image_key: imageKey }),
           msg_type: 'image',
         },
@@ -146,11 +149,12 @@ export class MessageSender {
   }
 
   async sendFile(chatId: string, fileKey: string): Promise<boolean> {
+    const receiveId = chatIdToGroupId(chatId);
     try {
       await this.client.im.v1.message.create({
         params: { receive_id_type: 'chat_id' },
         data: {
-          receive_id: chatId,
+          receive_id: receiveId,
           content: JSON.stringify({ file_key: fileKey }),
           msg_type: 'file',
         },
@@ -169,9 +173,10 @@ export class MessageSender {
   }
 
   async getChatMemberCount(chatId: string): Promise<number | undefined> {
+    const realChatId = chatIdToGroupId(chatId);
     try {
       const resp: any = await this.client.im.v1.chat.get({
-        path: { chat_id: chatId },
+        path: { chat_id: realChatId },
       });
       const userCount = parseInt(resp?.data?.user_count, 10) || 0;
       const botCount = parseInt(resp?.data?.bot_count, 10) || 0;
@@ -183,11 +188,12 @@ export class MessageSender {
   }
 
   async sendText(chatId: string, text: string): Promise<void> {
+    const receiveId = chatIdToGroupId(chatId);
     try {
       await this.client.im.v1.message.create({
         params: { receive_id_type: 'chat_id' },
         data: {
-          receive_id: chatId,
+          receive_id: receiveId,
           content: JSON.stringify({ text }),
           msg_type: 'text',
         },
