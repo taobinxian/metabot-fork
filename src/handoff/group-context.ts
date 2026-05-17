@@ -24,16 +24,29 @@ export function resolveGroupContext(
 
 /**
  * Strip the `grouptalk-<groupId>-<botName>` envelope used by inter-bot relays
- * so the embedded `<groupId>` can be matched against configured memberships.
- * Returns the chatId unchanged when it doesn't match the pattern.
+ * so the embedded `<groupId>` can be matched against configured memberships
+ * or used as a Feishu API `receive_id`. Returns the chatId unchanged when it
+ * doesn't match the pattern.
  *
- * The pattern is greedy on the middle segment so groupIds containing dashes
- * (uncommon, but possible if a user names a Web-UI group with dashes) round-trip
- * correctly — the trailing `-<botName>` is always the last hyphen-delimited
- * segment.
+ * Only Feishu-backed envelopes are unwrapped. Their inner `<groupId>` is a
+ * real Feishu chat id of the form `oc_<32-hex>` (no hyphens), so the capture
+ * is anchored to `oc_[^-]+` and requires a non-empty bot-name suffix
+ * (`.+$`). This lets bot names that contain dashes (e.g. `claude-code`)
+ * round-trip correctly — a naive greedy `(.+)-` pattern would mis-capture
+ * `oc_abc-claude` from `grouptalk-oc_abc-claude-code` and then re-fail the
+ * Feishu call with `invalid receive_id`.
+ *
+ * The Web-UI per-bot routing chatId uses a different prefix
+ * (`group-<id>-<bot>`, see ws-server.ts:680) and is therefore unaffected.
+ * Web-UI _cross-bot_ `mb talk` envelopes (`grouptalk-grp-<ts>-<rand>-<bot>`)
+ * are also intentionally NOT unwrapped — the inner id is not a real Feishu
+ * chat id, so even if it were extracted the downstream Feishu send would
+ * still fail. That path is unsupported by design; the synthetic chatId is
+ * pass-through and the WS subscription mechanism in ws-server delivers the
+ * inter-bot dialogue to the Web-UI instead.
  */
 export function chatIdToGroupId(chatId: string): string {
-  const m = chatId.match(/^grouptalk-(.+)-[^-]+$/);
+  const m = chatId.match(/^grouptalk-(oc_[^-]+)-.+$/);
   return m ? m[1] : chatId;
 }
 

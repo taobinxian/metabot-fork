@@ -1,6 +1,7 @@
 import type * as http from 'node:http';
 import { jsonResponse, parseJsonBody } from './helpers.js';
 import type { RouteContext } from './types.js';
+import { chatIdToGroupId } from '../../handoff/group-context.js';
 
 export async function handleTaskRoutes(
   ctx: RouteContext,
@@ -172,9 +173,11 @@ export async function handleTaskRoutes(
       const subs = ws.handle?.subscriptions;
       const hasWsSubscribers = subs && (subs.getSubscribers(chatId)?.size ?? 0) > 0;
 
-      // Detect grouptalk chatId pattern: grouptalk-{groupId}-{botName}
-      const grouptalkMatch = chatId.match(/^grouptalk-(.+)-[^-]+$/);
-      const grouptalkGroupId = grouptalkMatch ? grouptalkMatch[1] : undefined;
+      // Detect grouptalk chatId pattern: grouptalk-{groupId}-{botName}.
+      // `chatIdToGroupId` returns the inner groupId when the envelope matches,
+      // or the input unchanged otherwise — equality means "not an envelope".
+      const normalizedChatId = chatIdToGroupId(chatId);
+      const grouptalkGroupId = normalizedChatId !== chatId ? normalizedChatId : undefined;
 
       const result = await bot.bridge.executeApiTask({
         prompt,

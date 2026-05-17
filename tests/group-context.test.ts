@@ -49,12 +49,20 @@ describe('chatIdToGroupId', () => {
     expect(chatIdToGroupId('grouptalk-oc_abc-codex')).toBe('oc_abc');
   });
 
-  it('handles a groupId containing dashes (greedy match through last dash before bot)', () => {
-    expect(chatIdToGroupId('grouptalk-oc_a-b-c-codex')).toBe('oc_a-b-c');
+  it('handles a hyphenated bot name (e.g. claude-code) without mis-capturing the groupId', () => {
+    expect(chatIdToGroupId('grouptalk-oc_abc-claude-code')).toBe('oc_abc');
   });
 
   it('does not normalize a malformed grouptalk pattern with no bot suffix', () => {
     expect(chatIdToGroupId('grouptalk-onlyone')).toBe('grouptalk-onlyone');
+  });
+
+  it('does not normalize when the inner groupId is not a Feishu `oc_*` chat id', () => {
+    expect(chatIdToGroupId('grouptalk-webgroup1-codex')).toBe('grouptalk-webgroup1-codex');
+  });
+
+  it('does not normalize when the bot-name suffix is empty (`grouptalk-oc_abc-`)', () => {
+    expect(chatIdToGroupId('grouptalk-oc_abc-')).toBe('grouptalk-oc_abc-');
   });
 
   it('returns empty string unchanged', () => {
