@@ -28,6 +28,7 @@ interface FeishuBotHandle {
   config: BotConfigBase;
   sender: IMessageSender;
   feishuClient: lark.Client;
+  botOpenId?: string;
 }
 
 async function startFeishuBot(botConfig: BotConfig, logger: Logger, memoryServerUrl: string, memorySecret?: string): Promise<FeishuBotHandle> {
@@ -96,7 +97,7 @@ async function startFeishuBot(botConfig: BotConfig, logger: Logger, memoryServer
     maxBudgetUsd: botConfig.claude.maxBudgetUsd ?? 'unlimited',
   }, 'Configuration');
 
-  return { name: botConfig.name, bridge, wsClient, config: botConfig, sender, feishuClient: client };
+  return { name: botConfig.name, bridge, wsClient, config: botConfig, sender, feishuClient: client, botOpenId };
 }
 
 async function main() {
@@ -154,6 +155,7 @@ async function main() {
       bridge: handle.bridge,
       sender: handle.sender,
       feishuClient: handle.feishuClient,
+      botOpenId: handle.botOpenId,
     });
   }
 

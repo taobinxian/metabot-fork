@@ -12,6 +12,12 @@ export interface RegisteredBot {
   sender: IMessageSender;
   /** Feishu SDK client (only for feishu platform bots). */
   feishuClient?: lark.Client;
+  /**
+   * The bot's own `open_id` in the IM tenant, used as the `user_id` value
+   * when another bot wants to @mention this one in a plain-text message.
+   * Currently populated only for Feishu bots.
+   */
+  botOpenId?: string;
 }
 
 /** Public DTO returned by list() — no secrets or internal refs. */
