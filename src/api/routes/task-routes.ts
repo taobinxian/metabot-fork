@@ -2,6 +2,7 @@ import type * as http from 'node:http';
 import { jsonResponse, parseJsonBody } from './helpers.js';
 import type { RouteContext } from './types.js';
 import { chatIdToGroupId } from '../../handoff/group-context.js';
+import { resolveBotMentions } from '../../bridge/mention-resolver.js';
 
 export async function handleTaskRoutes(
   ctx: RouteContext,
@@ -253,8 +254,14 @@ export async function handleTaskRoutes(
       return true;
     }
 
+    // Rewrite `@<botName>` tokens into Feishu plain-text @mention tags
+    // (<at user_id="ou_xxx"></at>) so the IM client renders them as real
+    // mentions of the target bot's current group nickname. Unknown bot names
+    // and bots without a known botOpenId are left untouched.
+    const resolvedText = resolveBotMentions(text, (name) => registry.get(name)?.botOpenId);
+
     try {
-      await bot.sender.sendText(chatId, text);
+      await bot.sender.sendText(chatId, resolvedText);
       jsonResponse(res, 200, { success: true });
     } catch (err: any) {
       logger.error({ err, botName, chatId }, 'Failed to send message');
