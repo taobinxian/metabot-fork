@@ -151,6 +151,19 @@ describe('buildCard', () => {
     const bg = json.elements.find((e: any) => e.tag === 'markdown' && /Background/.test(e.content));
     expect(bg).toBeUndefined();
   });
+
+  it('does not render <at> in card body even when mentionUserId is set (push is via completion notice text)', () => {
+    const state: CardState = {
+      status: 'running',
+      userPrompt: 'hi',
+      responseText: 'done',
+      toolCalls: [],
+      mentionUserId: 'ou_abc123',
+    };
+    const json = JSON.parse(buildCard(state));
+    const atEl = json.elements.find((e: any) => e.tag === 'markdown' && /<at /.test(e.content));
+    expect(atEl).toBeUndefined();
+  });
 });
 
 describe('buildHelpCard', () => {

@@ -47,6 +47,9 @@ export interface CardState {
   sessionCostUsd?: number;
   /** Background tasks (e.g. Monitor) the agent has spawned during this turn. */
   backgroundEvents?: BackgroundEvent[];
+  /** Open ID of the user to @mention in this card. Feishu group chats only;
+   *  other adapters (Telegram/Web) ignore it. */
+  mentionUserId?: string;
 }
 
 export interface IncomingMessage {

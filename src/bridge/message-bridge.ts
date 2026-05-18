@@ -50,6 +50,8 @@ interface RunningTask {
   processor: StreamProcessor;
   rateLimiter: RateLimiter;
   chatId: string;
+  /** Open ID of the user to @mention in card updates (group chats only). */
+  mentionUserId?: string;
 }
 
 export interface ApiTaskOptions {
@@ -429,6 +431,7 @@ export class MessageBridge {
           ? currentState.responseText + `\n\n> **Reply ${progress}:** ${answerText}`
           : `> **Reply:** ${answerText}`,
         pendingQuestion: displayQuestion,
+        mentionUserId: task.mentionUserId,
       });
       return;
     }
@@ -477,6 +480,7 @@ export class MessageBridge {
           ? currentState.responseText + `\n\n> **Reply:** ${answerText}\n\n_Next question${progress}..._`
           : `> **Reply:** ${answerText}\n\n_Next question${progress}..._`,
         pendingQuestion: displayQuestion,
+        mentionUserId: task.mentionUserId,
       });
       return;
     }
@@ -492,6 +496,7 @@ export class MessageBridge {
       responseText: currentState.responseText
         ? currentState.responseText + `\n\n> **Reply:** ${answerSummary}\n\n_Continuing..._`
         : `> **Reply:** ${answerSummary}\n\n_Continuing..._`,
+      mentionUserId: task.mentionUserId,
     });
   }
 
@@ -588,10 +593,18 @@ export class MessageBridge {
   }
 
   private async executeQuery(msg: IncomingMessage): Promise<void> {
-    const { userId, chatId, text, imageKey, fileKey, fileName, messageId: msgId } = msg;
+    const { userId, chatId, chatType, text, imageKey, fileKey, fileName, messageId: msgId } = msg;
     const session = this.sessionManager.getSession(chatId);
     const cwd = session.workingDirectory;
     const abortController = new AbortController();
+
+    // In group chats, every card update should @mention the original sender so
+    // the user gets a precise push + visual link back to themselves.
+    // StreamProcessor rebuilds CardState on every iteration without this field,
+    // so we merge it back via `withMention()` at every update / send call site.
+    const mentionUserId = chatType === 'group' ? userId : undefined;
+    const withMention = (s: CardState): CardState =>
+      mentionUserId ? { ...s, mentionUserId } : s;
 
     // Prepare downloads directory (bot-isolated)
     const downloadsDir = this.config.claude.downloadsDir;
@@ -658,12 +671,12 @@ export class MessageBridge {
       ? `🖼️ [${mediaCount} files] ${text}`
       : fileKey ? '📎 ' + text : imageKey ? '🖼️ ' + text : text;
     const processor = new StreamProcessor(displayPrompt);
-    const initialState: CardState = {
+    const initialState: CardState = withMention({
       status: 'thinking',
       userPrompt: displayPrompt,
       responseText: '',
       toolCalls: [],
-    };
+    });
 
     const messageId = await this.sender.sendCard(chatId, initialState);
 
@@ -704,6 +717,7 @@ export class MessageBridge {
       processor,
       rateLimiter,
       chatId,
+      mentionUserId,
     };
     this.runningTasks.set(chatId, runningTask);
     metrics.setGauge('metabot_active_tasks', this.runningTasks.size);
@@ -741,7 +755,7 @@ export class MessageBridge {
         if (abortController.signal.aborted) break;
         resetIdleTimer();
 
-        const state = processor.processMessage(message);
+        const state = withMention(processor.processMessage(message));
         lastState = state;
 
         // Update session ID if discovered
@@ -860,7 +874,7 @@ export class MessageBridge {
         for await (const message of retryHandle.stream) {
           if (abortController.signal.aborted) break;
           resetIdleTimer();
-          const state = processor.processMessage(message);
+          const state = withMention(processor.processMessage(message));
           lastState = state;
           const newSid = processor.getSessionId();
           if (newSid) this.sessionManager.setSessionId(chatId, newSid);
@@ -886,7 +900,7 @@ export class MessageBridge {
         for await (const message of retryHandle.stream) {
           if (abortController.signal.aborted) break;
           resetIdleTimer();
-          const state = processor.processMessage(message);
+          const state = withMention(processor.processMessage(message));
           lastState = state;
           const newSid = processor.getSessionId();
           if (newSid) this.sessionManager.setSessionId(chatId, newSid);
@@ -952,7 +966,7 @@ export class MessageBridge {
           for await (const message of retryHandle.stream) {
             if (abortController.signal.aborted) break;
             resetIdleTimer();
-            const state = processor.processMessage(message);
+            const state = withMention(processor.processMessage(message));
             lastState = state;
             const newSid = processor.getSessionId();
             if (newSid) this.sessionManager.setSessionId(chatId, newSid);
@@ -1002,13 +1016,13 @@ export class MessageBridge {
       metrics.incCounter('metabot_tasks_total');
       metrics.incCounter('metabot_tasks_by_status', 'error');
 
-      const errorState: CardState = {
+      const errorState: CardState = withMention({
         status: 'error',
         userPrompt: displayPrompt,
         responseText: lastState.responseText,
         toolCalls: lastState.toolCalls,
         errorMessage: err.message || 'Unknown error',
-      };
+      });
       await rateLimiter.cancelAndWait();
       await this.sendFinalCard(messageId, errorState, chatId);
     } finally {
@@ -1497,7 +1511,13 @@ export class MessageBridge {
       usageStr = ` · ${tokensK} tokens`;
     }
 
-    const message = `${statusEmoji} ${statusWord} (${durationStr}${costStr}${modelStr}${usageStr})`;
+    // Plain-text @mention syntax (different from card markdown!): `<at user_id="ou_xxx"></at>`.
+    // This is what triggers a Feishu mobile push notification (card updates don't push,
+    // only the initial card send + new text messages do).
+    const mentionPrefix = state.mentionUserId
+      ? `<at user_id="${state.mentionUserId}"></at> `
+      : '';
+    const message = `${mentionPrefix}${statusEmoji} ${statusWord} (${durationStr}${costStr}${modelStr}${usageStr})`;
 
     try {
       await this.sender.sendText(chatId, message);
