@@ -151,6 +151,33 @@ describe('buildCard', () => {
     const bg = json.elements.find((e: any) => e.tag === 'markdown' && /Background/.test(e.content));
     expect(bg).toBeUndefined();
   });
+
+  it('renders <at id=ou_xxx></at> when mentionUserId is set', () => {
+    const state: CardState = {
+      status: 'running',
+      userPrompt: 'hi',
+      responseText: 'done',
+      toolCalls: [],
+      mentionUserId: 'ou_abc123',
+    };
+    const json = JSON.parse(buildCard(state));
+    const atEl = json.elements.find((e: any) => e.tag === 'markdown' && e.content.includes('<at id=ou_abc123>'));
+    expect(atEl).toBeDefined();
+    // The @mention should be the first element so the user sees it on top
+    expect(json.elements[0]).toEqual({ tag: 'markdown', content: '<at id=ou_abc123></at>' });
+  });
+
+  it('omits <at> element when mentionUserId is undefined', () => {
+    const state: CardState = {
+      status: 'running',
+      userPrompt: 'hi',
+      responseText: 'done',
+      toolCalls: [],
+    };
+    const json = JSON.parse(buildCard(state));
+    const atEl = json.elements.find((e: any) => e.tag === 'markdown' && /<at /.test(e.content));
+    expect(atEl).toBeUndefined();
+  });
 });
 
 describe('buildHelpCard', () => {

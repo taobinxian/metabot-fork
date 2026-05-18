@@ -45,6 +45,16 @@ export function buildCard(state: CardState): string {
   const config = STATUS_CONFIG[state.status];
   const elements: unknown[] = [];
 
+  // @mention the original sender (Feishu group chats only).
+  // Card markdown syntax: `<at id=ou_xxx></at>` — note no quotes, attr is `id`
+  // (not `user_id` as in plain-text messages).
+  if (state.mentionUserId) {
+    elements.push({
+      tag: 'markdown',
+      content: `<at id=${state.mentionUserId}></at>`,
+    });
+  }
+
   // Tool calls section
   if (state.toolCalls.length > 0) {
     const toolLines = state.toolCalls.map((t) => {
