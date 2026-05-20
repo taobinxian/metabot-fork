@@ -227,7 +227,7 @@ export class ClaudeExecutor {
         const groupId = apiContext.groupId;
         if (groupId) {
           appendSections.push(
-            `## Group Chat\nYou are in a group chat (group: ${groupId}) with these bots: ${others.join(', ')}.\nTo talk to another bot, use: \`mb talk <botName> grouptalk-${groupId}-<botName> "message"\`\nExample: \`mb talk ${others[0]} grouptalk-${groupId}-${others[0]} "hello"\`\nIMPORTANT: Always use the grouptalk-${groupId}-<botName> chatId pattern when talking to other bots in this group.`
+            `## Group Chat\nReachable peer bots: ${others.join(', ')}.\nPRIMARY (default — keeps the human user in the loop): To talk to another bot in the CURRENT chat where the user invoked you, use \`mb talk <botName> ${apiContext.chatId} "message"\`. Example: \`mb talk ${others[0]} ${apiContext.chatId} "hello"\`. Verify presence first via a ping; if you get error 230002 "Bot/User can NOT be out of the chat", that peer is not in this chat, fall back.\nFALLBACK (only when the peer is NOT in the current chat): \`mb talk <botName> grouptalk-${groupId}-<botName> "message"\` — note the user will NOT see these messages.\nIMPORTANT: Do not jump straight to the fallback grouptalk pattern just because it exists. Default to the current chatId so the user can observe the conversation.`
           );
         } else {
           appendSections.push(

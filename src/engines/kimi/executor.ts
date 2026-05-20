@@ -270,7 +270,7 @@ export class KimiExecutor {
         const groupId = apiContext.groupId;
         if (groupId) {
           sections.push(
-            `## Group Chat\nYou are in a group chat (group: ${groupId}) with these bots: ${others.join(', ')}.\nTo talk to another bot, use: \`mb talk <botName> grouptalk-${groupId}-<botName> "message"\``,
+            `## Group Chat\nReachable peer bots: ${others.join(', ')}.\nPRIMARY (default — keeps the human user in the loop): To talk to another bot in the CURRENT chat where the user invoked you, use \`mb talk <botName> ${apiContext.chatId} "message"\`. Verify presence first via a ping; if you get error 230002 "Bot/User can NOT be out of the chat", that peer is not in this chat, fall back.\nFALLBACK (only when the peer is NOT in the current chat): \`mb talk <botName> grouptalk-${groupId}-<botName> "message"\` — note the user will NOT see these messages.`,
           );
         }
         const handoffSection = buildHandoffSystemPromptSection({
