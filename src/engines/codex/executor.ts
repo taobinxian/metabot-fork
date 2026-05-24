@@ -177,8 +177,12 @@ export class CodexExecutor {
       sendAnswer: (_toolUseId: string, _sid: string, _answerText: string) => {
         this.logger.warn({ engine: 'codex' }, 'sendAnswer called on Codex executor — not implemented');
       },
-      resolveQuestion: (_toolUseId: string, _answers: Record<string, string>) => {
+      resolveQuestion: (_toolUseId: string, _answers: Record<string, string>): boolean => {
         this.logger.warn({ engine: 'codex' }, 'resolveQuestion called on Codex executor — not implemented');
+        return false;
+      },
+      extendQuestionTimeout: (_toolUseId: string) => {
+        // Codex doesn't use the PreToolUse hook mechanism — no-op.
       },
       finish: () => {
         if (child && !child.killed) child.kill('SIGTERM');

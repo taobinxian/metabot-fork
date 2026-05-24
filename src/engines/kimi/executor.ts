@@ -168,8 +168,12 @@ export class KimiExecutor {
         // Log and no-op so the bridge doesn't crash.
         logger.warn({ engine: 'kimi' }, 'sendAnswer called on Kimi executor — not yet implemented');
       },
-      resolveQuestion: (_toolUseId: string, _answers: Record<string, string>) => {
+      resolveQuestion: (_toolUseId: string, _answers: Record<string, string>): boolean => {
         logger.warn({ engine: 'kimi' }, 'resolveQuestion called on Kimi executor — not yet implemented');
+        return false;
+      },
+      extendQuestionTimeout: (_toolUseId: string) => {
+        // Kimi doesn't use the PreToolUse hook mechanism — no-op.
       },
       finish: () => {
         // No input queue to close — single-turn model.
