@@ -415,6 +415,10 @@ export class MessageBridge {
       task.questionTimeoutId = setTimeout(() => {
         this.autoAnswerRemainingQuestions(task);
       }, QUESTION_TIMEOUT_MS);
+      // Also re-arm the executor-side hook timeout so multi-question calls
+      // don't blow the hook's 6-min total budget while the bridge keeps
+      // resetting its own per-question timer.
+      task.executionHandle.extendQuestionTimeout(pending.toolUseId);
 
       // Update card to show next question
       const currentState = task.processor.getCurrentState();
@@ -451,7 +455,24 @@ export class MessageBridge {
     task.collectedAnswers = {};
     task.processor.clearPendingQuestion();
 
-    task.executionHandle.resolveQuestion(pending.toolUseId, collectedAnswers);
+    const delivered = task.executionHandle.resolveQuestion(pending.toolUseId, collectedAnswers);
+
+    if (!delivered) {
+      // Hook resolver was already gone (timed out or aborted) before the user
+      // finished answering. The fallback inputQueue.enqueue won't reach the SDK
+      // in bypassPermissions mode, so the answer is lost — tell the user
+      // explicitly rather than silently appearing to succeed.
+      this.logger.warn({ chatId, toolUseId: pending.toolUseId }, 'AskUserQuestion answer arrived after hook timeout — notifying user');
+      const currentState = task.processor.getCurrentState();
+      await this.sender.updateCard(task.cardMessageId, {
+        ...currentState,
+        status: 'error',
+        responseText: (currentState.responseText ? currentState.responseText + '\n\n' : '')
+          + `> **Reply:** ${answerText}\n\n⚠️ 问答会话已超时，刚才的选择未被采用。请重新发起任务。`,
+        mentionUserId: task.mentionUserId,
+      });
+      return;
+    }
 
     this.logger.info({ chatId, answers: collectedAnswers, toolUseId: pending.toolUseId }, 'Resolved AskUserQuestion hook with collected answers');
 
@@ -521,7 +542,10 @@ export class MessageBridge {
     task.collectedAnswers = {};
     task.processor.clearPendingQuestion();
 
-    task.executionHandle.resolveQuestion(pending.toolUseId, collectedAnswers);
+    const delivered = task.executionHandle.resolveQuestion(pending.toolUseId, collectedAnswers);
+    if (!delivered) {
+      this.logger.warn({ chatId: task.chatId, toolUseId: pending.toolUseId }, 'Auto-answer arrived after hook timeout — SDK already moved on');
+    }
   }
 
   /** Check if message is a media message with default (auto-generated) text. */
@@ -1174,16 +1198,23 @@ export class MessageBridge {
             const answerJson = await options.onQuestion(pending);
             processor.clearPendingQuestion();
             // Parse answers from the caller's JSON and resolve the PreToolUse hook.
+            let delivered: boolean;
             try {
               const parsed = JSON.parse(answerJson);
-              executionHandle.resolveQuestion(pending.toolUseId, parsed.answers || {});
+              delivered = executionHandle.resolveQuestion(pending.toolUseId, parsed.answers || {});
             } catch {
-              executionHandle.resolveQuestion(pending.toolUseId, { _answer: answerJson });
+              delivered = executionHandle.resolveQuestion(pending.toolUseId, { _answer: answerJson });
+            }
+            if (!delivered) {
+              this.logger.warn({ chatId, toolUseId: pending.toolUseId }, 'API task: AskUserQuestion answer arrived after hook timeout — SDK already moved on');
             }
           } else {
             // Auto-answer when no onQuestion handler is provided
             processor.clearPendingQuestion();
-            executionHandle.resolveQuestion(pending.toolUseId, { _auto: 'Please decide on your own and proceed.' });
+            const delivered = executionHandle.resolveQuestion(pending.toolUseId, { _auto: 'Please decide on your own and proceed.' });
+            if (!delivered) {
+              this.logger.warn({ chatId, toolUseId: pending.toolUseId }, 'API task: auto-answer arrived after hook timeout — SDK already moved on');
+            }
           }
           continue;
         }

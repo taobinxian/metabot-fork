@@ -174,8 +174,21 @@ export interface ExecutionHandle {
    * Use this instead of sendAnswer when running in bypassPermissions mode —
    * sendAnswer enqueues a tool_result that never reaches the SDK because the
    * internal permission check short-circuits before auto-allow.
+   *
+   * Returns true when the answer was delivered via the hook resolver (the SDK
+   * will accept it). Returns false when the resolver was already removed (e.g.,
+   * hook timed out or was aborted) and the call fell back to the inputQueue
+   * path — in that case the SDK has likely already moved on and the bridge
+   * should notify the user instead of pretending the answer landed.
    */
-  resolveQuestion(toolUseId: string, answers: Record<string, string>): void;
+  resolveQuestion(toolUseId: string, answers: Record<string, string>): boolean;
+  /**
+   * Re-arm the safety timeout for a still-pending AskUserQuestion hook. Call
+   * this when advancing to the next sub-question of a multi-question
+   * AskUserQuestion call so the hook's kill-switch stays aligned with the
+   * bridge's per-question timer. No-op if the hook is no longer pending.
+   */
+  extendQuestionTimeout(toolUseId: string): void;
   finish(): void;
 }
 
@@ -311,6 +324,11 @@ export class ClaudeExecutor {
     // Providing updatedInput satisfies the interaction requirement and the SDK
     // resolves the tool call with {answers} filled in.
     const pendingQuestionResolvers = new Map<string, (answers: Record<string, string>) => void>();
+    // Per-toolUseId timeout resetters so the bridge can re-arm the kill-switch
+    // each time the user answers a sub-question (multi-question AskUserQuestion
+    // calls otherwise race the 6-min total budget against a 5-min per-question
+    // bridge timer that the bridge resets every answer).
+    const pendingQuestionTimeoutResetters = new Map<string, () => void>();
 
     const askUserQuestionHook = async (
       input: { hook_event_name: string; tool_name: string; tool_input: unknown; tool_use_id: string },
@@ -324,22 +342,35 @@ export class ClaudeExecutor {
         pendingQuestionResolvers.set(id, resolve);
 
         // Safety timeout: auto-resolve with empty answers after 6 minutes
-        // (slightly longer than bridge's 5-minute QUESTION_TIMEOUT_MS) to
-        // prevent indefinite hang if the bridge fails to deliver an answer.
-        const timeout = setTimeout(() => {
-          if (pendingQuestionResolvers.delete(id)) {
-            logger.warn({ toolUseId: id }, 'AskUserQuestion hook timed out after 6 minutes — returning empty answers');
-            resolve({});
-          }
-        }, 6 * 60 * 1000);
+        // of inactivity (slightly longer than bridge's 5-min QUESTION_TIMEOUT_MS
+        // to allow bridge's auto-answer + round-trip to win the race). The
+        // bridge calls extendQuestionTimeout(id) after each sub-question answer
+        // to re-arm this kill-switch, so multi-question calls don't time out
+        // mid-way through.
+        let timeout: ReturnType<typeof setTimeout> | undefined;
+        const armTimeout = () => {
+          if (timeout) clearTimeout(timeout);
+          timeout = setTimeout(() => {
+            pendingQuestionTimeoutResetters.delete(id);
+            if (pendingQuestionResolvers.delete(id)) {
+              logger.warn({ toolUseId: id }, 'AskUserQuestion hook timed out after 6 minutes of inactivity — returning empty answers');
+              resolve({});
+            }
+          }, 6 * 60 * 1000);
+        };
+        pendingQuestionTimeoutResetters.set(id, armTimeout);
+        armTimeout();
 
         const onAbort = () => {
-          clearTimeout(timeout);
+          if (timeout) clearTimeout(timeout);
+          pendingQuestionTimeoutResetters.delete(id);
           pendingQuestionResolvers.delete(id);
           resolve({});
         };
         signal.addEventListener('abort', onAbort, { once: true });
       });
+
+      pendingQuestionTimeoutResetters.delete(id);
 
       return {
         hookSpecificOutput: {
@@ -419,27 +450,37 @@ export class ClaudeExecutor {
         };
         inputQueue.enqueue(answerMessage);
       },
-      resolveQuestion: (toolUseId: string, answers: Record<string, string>) => {
+      resolveQuestion: (toolUseId: string, answers: Record<string, string>): boolean => {
         const resolver = pendingQuestionResolvers.get(toolUseId);
         if (resolver) {
           pendingQuestionResolvers.delete(toolUseId);
+          pendingQuestionTimeoutResetters.delete(toolUseId);
           logger.info({ toolUseId, answerCount: Object.keys(answers).length }, 'Resolving AskUserQuestion hook');
           resolver(answers);
-        } else {
-          // Fallback: enqueue tool_result via inputQueue. Used if the hook
-          // didn't capture this toolUseId (e.g., legacy sendAnswer path) or
-          // the SDK version differs.
-          logger.warn({ toolUseId }, 'No pending AskUserQuestion resolver — falling back to sendAnswer path');
-          const answerMessage: SDKUserMessage = {
-            type: 'user',
-            message: {
-              role: 'user' as const,
-              content: [{ type: 'tool_result', tool_use_id: toolUseId, content: JSON.stringify({ answers }) }],
-            },
-            parent_tool_use_id: null,
-            session_id: '',
-          };
-          inputQueue.enqueue(answerMessage);
+          return true;
+        }
+        // Fallback: enqueue tool_result via inputQueue. Used if the hook
+        // didn't capture this toolUseId (e.g., legacy sendAnswer path) or
+        // the SDK version differs. In bypassPermissions mode this enqueue
+        // typically reaches no listener — the caller (bridge) should treat
+        // a false return as "answer lost" and tell the user to retry.
+        logger.warn({ toolUseId }, 'No pending AskUserQuestion resolver — falling back to sendAnswer path');
+        const answerMessage: SDKUserMessage = {
+          type: 'user',
+          message: {
+            role: 'user' as const,
+            content: [{ type: 'tool_result', tool_use_id: toolUseId, content: JSON.stringify({ answers }) }],
+          },
+          parent_tool_use_id: null,
+          session_id: '',
+        };
+        inputQueue.enqueue(answerMessage);
+        return false;
+      },
+      extendQuestionTimeout: (toolUseId: string) => {
+        const resetter = pendingQuestionTimeoutResetters.get(toolUseId);
+        if (resetter) {
+          resetter();
         }
       },
       finish: () => {
