@@ -87,11 +87,17 @@ export function buildCard(state: CardState): string {
     });
   }
 
-  // Pending question section — interactive buttons + text-fallback hint
+  // Pending question section — text-only (no buttons).
+  // Why no buttons: @larksuiteoapi/node-sdk WSClient.start() only accepts
+  // `eventDispatcher` and does NOT deliver `card.action.trigger` events over
+  // the long-connection channel. Any rendered button click fails on the
+  // Feishu client with `code: 200340` ("出错了，请稍后重试") because no
+  // callback handler ever responds. Until card callbacks move to an HTTP
+  // webhook (CardActionHandler), render numbered options + ask the user to
+  // reply with the option number.
   if (state.pendingQuestion) {
     elements.push({ tag: 'hr' });
-    state.pendingQuestion.questions.forEach((q, qi) => {
-      // Question prompt
+    state.pendingQuestion.questions.forEach((q) => {
       const descLines = q.options.map(
         (opt, i) => `**${i + 1}.** ${opt.label} — _${opt.description}_`,
       );
@@ -99,26 +105,10 @@ export function buildCard(state: CardState): string {
         tag: 'markdown',
         content: [`**[${q.header}] ${q.question}**`, '', ...descLines].join('\n'),
       });
-      // Interactive buttons: one per option + an explicit "Other" button
-      const actions = q.options.map((opt, oi) => ({
-        tag: 'button',
-        text: { tag: 'plain_text', content: `${oi + 1}. ${opt.label}` },
-        type: 'primary',
-        value: {
-          action: 'answer_question',
-          toolUseId: state.pendingQuestion!.toolUseId,
-          questionIndex: qi,
-          optionIndex: oi,
-        },
-      }));
-      elements.push({
-        tag: 'action',
-        actions,
-      });
     });
     elements.push({
       tag: 'markdown',
-      content: '_点击按钮选择，或直接输入自定义答案_',
+      content: '**请直接回复编号**（如：`1`）**或自定义文字**',
     });
   }
 
@@ -168,8 +158,12 @@ export function buildCard(state: CardState): string {
   }
 
   const card = {
-    // update_multi lets us re-render the same card after an action click
-    // without hitting Feishu error 108002 ("card has already been updated").
+    // update_multi lets the bridge re-render the same card after the user
+    // replies — needed for streaming updates and multi-question prompts.
+    // (Originally added for the interactive button click path; now also
+    // protects text-reply re-renders from Feishu error 108002 "card has
+    // already been updated", and stays ready for button restoration once
+    // card callbacks move to an HTTP webhook.)
     config: { wide_screen_mode: true, update_multi: true },
     header: {
       template: config.color,

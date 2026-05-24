@@ -89,21 +89,18 @@ describe('buildCard', () => {
     expect(qEl).toBeDefined();
     expect(qEl.content).toContain('Production');
     expect(qEl.content).toContain('Staging');
-    // update_multi must be set so Feishu accepts card updates after an action click
-    expect(json.config.update_multi).toBe(true);
-    // Interactive buttons: one action element with one button per option
+    // No interactive button action element: Feishu WSClient long-connection
+    // mode does not deliver card.action.trigger events to the bridge, so any
+    // rendered button click fails with code 200340 ("出错了"). Until we move
+    // card callbacks to an HTTP webhook, render text-only and tell the user
+    // to reply with the option number.
     const actionEl = json.elements.find((e: any) => e.tag === 'action');
-    expect(actionEl).toBeDefined();
-    expect(actionEl.actions).toHaveLength(2);
-    expect(actionEl.actions[0].tag).toBe('button');
-    expect(actionEl.actions[0].text.content).toContain('Production');
-    expect(actionEl.actions[0].value).toEqual({
-      action: 'answer_question',
-      toolUseId: 'q1',
-      questionIndex: 0,
-      optionIndex: 0,
-    });
-    expect(actionEl.actions[1].value.optionIndex).toBe(1);
+    expect(actionEl).toBeUndefined();
+    // The text-reply hint must instruct numeric input explicitly.
+    const hintEl = json.elements.find(
+      (e: any) => e.tag === 'markdown' && typeof e.content === 'string' && e.content.includes('请直接回复编号'),
+    );
+    expect(hintEl).toBeDefined();
   });
 
   it('truncates long content', () => {
