@@ -27,6 +27,11 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         CLAUDE_MAX_TURNS: '',  // unlimited turns (override any inherited shell env)
+        // Bypass any inherited HTTP(S)_PROXY for Feishu / Volcengine / ByteDance
+        // domains. Some local proxies (e.g. v2ray/clash on 127.0.0.1:1082) loop
+        // 22x on open.feishu.cn/open-apis and break tenant_access_token fetch,
+        // causing botOpenId to be null and self-filter to drop all group msgs.
+        NO_PROXY: 'localhost,127.0.0.1,::1,.local,.feishu.cn,.larksuite.com,.larkoffice.com,.feishuapp.com,.volcengineapi.com,.volces.com,.bytedance.com',
       },
     },
   ],
